@@ -1,18 +1,31 @@
 from random import randrange as rnd, choice
-import tkinter as tk
+from tkinter import *
 import math
 import time
 
 score = 0
 
-root = tk.Tk()
-fr = tk.Frame(root)
+
+def restart():
+    global bullet, balls, drones, targets, timer, score, global_score
+    bullet = 0
+    for b in balls+drones+targets:
+        canv.delete(b.id)
+    balls = []
+    drones = []
+    targets = []
+    timer = -1
+    score = 0
+
+root = Tk()
+fr = Frame(root)
 root.geometry('800x600')
 width = 800
 height = 600
-canv = tk.Canvas(root, bg='white')
-canv.pack(fill=tk.BOTH, expand=1)
-
+canv = Canvas(root, bg='white')
+canv.pack(fill=BOTH, expand=1)
+restart_button = Button(canv, text="Restart", command=restart)
+restart_button.pack(padx=120, pady=30)
 
 class Ball:
     def __init__(self, x=40, y=450):
@@ -27,6 +40,7 @@ class Ball:
         self.r = 10
         self.vx = 0
         self.vy = 0
+        self.g = 1
         self.color = choice(['blue', 'green', 'black', 'brown'])
         self.id = canv.create_oval(
             self.x - self.r,
@@ -36,7 +50,6 @@ class Ball:
             fill=self.color
         )
         self.live = 80
-        print('\n')
 
     def set_coords(self):
         """
@@ -79,8 +92,8 @@ class Ball:
             self.y = height
         else:
             self.x += self.vx
-            self.y -= self.vy
-            self.vy -= g
+            self.y += self.vy
+            self.vy += self.g
         self.set_coords()
 
     def hit_test(self, obj):
@@ -99,7 +112,7 @@ class Ball:
             ((self.vy - obj.vy) ** 2 + (self.vx - obj.vx) ** 2)
 
         k = (((self.x + self.vx * t - obj.vx * t - obj.x) ** 2 +
-              (self.y + self.vy * t - obj.vy * t + obj.y) ** 2) ** 0.5 <=
+              (self.y + self.vy * t - obj.vy * t - obj.y) ** 2) ** 0.5 <=
              self.r + obj.r)
 
         if (self.x - obj.x) ** 2 + (self.y - obj.y) ** 2 <= (
@@ -110,6 +123,30 @@ class Ball:
 
         else:
             return False
+
+
+class Drone(Ball):
+    """
+    Класс управляемых дронов
+    """
+
+    def turn_left(self, event):
+        self.vx += 0.5 * self.vy / (self.vx ** 2 + self.vy ** 2) ** 0.5
+        self.vy += -0.5 * self.vx / (self.vx ** 2 + self.vy ** 2) ** 0.5
+
+    def turn_right(self, event):
+        self.vx += -0.5 * self.vy / (self.vx ** 2 + self.vy ** 2) ** 0.5
+        self.vy += 0.5 * self.vx / (self.vx ** 2 + self.vy ** 2) ** 0.5
+
+    def boost(self, event):
+        if (self.vx ** 2 + self.vy ** 2) ** 0.5 < 30:
+            self.vx += 2 * self.vx / (self.vx ** 2 + self.vy ** 2) ** 0.5
+            self.vy += 2 * self.vy / (self.vx ** 2 + self.vy ** 2) ** 0.5
+
+    def stop(self, event):
+        if (self.vx ** 2 + self.vy ** 2) ** 0.5 > 5:
+            self.vx -= 2 * self.vx / (self.vx ** 2 + self.vy ** 2) ** 0.5
+            self.vy -= 2 * self.vy / (self.vx ** 2 + self.vy ** 2) ** 0.5
 
 
 class Gun:
@@ -140,10 +177,25 @@ class Gun:
         new_ball.r += 5
         self.an = math.atan((event.y - new_ball.y) / (event.x - new_ball.x))
         new_ball.vx = self.f2_power * math.cos(self.an)
-        new_ball.vy = - self.f2_power * math.sin(self.an)
+        new_ball.vy = self.f2_power * math.sin(self.an)
         balls += [new_ball]
         self.f2_on = 0
         self.f2_power = 20
+
+    def fire_drone(self, event):
+        global drones
+        for drone in drones:
+            canv.delete(drone.id)
+        drones = []
+        new_drone = Drone()
+        new_drone.x = 40
+        new_drone.y = 450
+        new_drone.r = 15
+        new_drone.g = 0
+        new_drone.vx = 15 * math.cos(self.an)
+        new_drone.vy = 15 * math.sin(self.an)
+        new_drone.color = choice(['blue', 'green', 'black', 'brown'])
+        drones += [new_drone]
 
     def targeting(self, event=None):
         """Прицеливание. Зависит от положения мыши."""
@@ -204,7 +256,7 @@ class Target:
             self.y = height
         else:
             self.x += self.vx
-            self.y -= self.vy
+            self.y += self.vy
 
         canv.coords(self.id, self.x - self.r, self.y - self.r, self.x + self.r,
                     self.y + self.r)
@@ -223,12 +275,16 @@ screen1 = canv.create_text(400, 300, text='', font='28')
 g1 = Gun()
 bullet = 0
 balls = []
+drones = []
 targets = []
 max_targets = 2
 timer = -1
 
-
+canv.create_text(width//2, height-50, text="выстрел - ЛКМ, "
+                                           "выстрел дроном - ПКМ,"
+                                     "управление дроном - arrow keys")
 def new_game():
+
     global screen1, balls, bullet, timer
     if len(targets) < max_targets:
         f = Target()
@@ -237,11 +293,18 @@ def new_game():
         targets.append(f)
 
     bullet = 0
+    canv.bind('<Button-3>', g1.fire_drone)
     canv.bind('<Button-1>', g1.fire2_start)
     canv.bind('<ButtonRelease-1>', g1.fire2_end)
     canv.bind('<Motion>', g1.targeting)
+
     z = 0.03  # delay   in seconds between loop iterations
-    while targets or balls:
+    while targets or balls or drones:
+        if drones:
+            root.bind('<Key-Left>', drones[0].turn_left)
+            root.bind('<Key-Right>', drones[0].turn_right)
+            root.bind('<Key-Up>', drones[0].boost)
+            root.bind('<Key-Down>', drones[0].stop)
         if len(targets) < max_targets:
             f = Target()  # creates a new target
             f.hit(False, 0)
@@ -251,11 +314,15 @@ def new_game():
             b.move()
         for t in targets:
             t.move()
+        for d in drones:
+            d.move()
+
         for b in balls:
             if b.live < 0:
                 canv.delete(b.id)
                 balls.remove(b)
-            for t in targets:
+        for t in targets:
+            for b in balls + drones:
                 if b.hit_test(t) and t.live:
                     t.live = 0
                     t.hit()
@@ -265,6 +332,7 @@ def new_game():
                                          str(bullet) + ' выстрелов')
                     timer = 1.2  # time in seconds before text will disappear
                     bullet = 0
+
         if timer > 0:
             timer -= z
         else:
@@ -279,6 +347,7 @@ def new_game():
     root.after(750, new_game)
 
 
+print()
 new_game()
 
-tk.mainloop()
+mainloop()
